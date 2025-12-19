@@ -1,911 +1,918 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Download, ImagePlus, Smartphone, Check, ZoomIn, Trash2, RotateCw, Eye } from 'lucide-react';
-
-const App = () => {
-  // --- Orientation State ---
-  const [isPortrait, setIsPortrait] = useState(false);
-  const [showPortraitWarning, setShowPortraitWarning] = useState(false); // Track if warning is shown
-  const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
-
-  // --- Grid State ---
-  // transform data: { url, id, x, y, scale, rotation }
-  const [grid, setGrid] = useState(Array(9).fill(null));
-  
-  // --- Interaction State ---
-  const [draggedIndex, setDraggedIndex] = useState(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [selectedIndex, setSelectedIndex] = useState(null); 
-  const [isRearranging, setIsRearranging] = useState(false);
-
-  // --- Adjust/Preview Mode State ---
-  const [adjustingIndex, setAdjustingIndex] = useState(null);
-  const [pendingPhoto, setPendingPhoto] = useState(null); 
-  const [tempTransform, setTempTransform] = useState({ x: 0, y: 0, scale: 1, rotation: 0 });
-  const [deleteConfirm, setDeleteConfirm] = useState(false); 
-  const [showRotationControl, setShowRotationControl] = useState(false);
-  const [showEyeGuide, setShowEyeGuide] = useState(true); 
-  
-  // --- Refs ---
-  const containerRef = useRef(null);
-  const gridRef = useRef(null); // Ref for the grid DOM element
-  const fileInputRefs = useRef({}); 
-  
-  // --- Touch Tracking (Main Grid) ---
-  const activeTouches = useRef(new Map());
-  const activeGridIndex = useRef(null); 
-  const initialTouchDistance = useRef(null);
-  const initialTouchCenter = useRef(null);
-  const initialTransform = useRef({ x: 0, y: 0, scale: 1, rotation: 0 });
-  const longPressTimer = useRef(null);
-  const lastTapTime = useRef(0);
-  const isPanning = useRef(false);
-
-  // --- Touch Tracking (Adjust Modal) ---
-  const adjustTouches = useRef(new Map());
-  const adjustStartDist = useRef(null);
-  const adjustStartAngle = useRef(0); 
-  const adjustStartCenter = useRef(null);
-  const adjustStartTransform = useRef(null);
-
-  // --- Orientation & Resize Check ---
-  useEffect(() => {
-    const handleResize = () => {
-      const portrait = window.innerHeight > window.innerWidth;
-      const prevPortrait = isPortrait;
-      setIsPortrait(portrait);
-      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
-
-      if (portrait && !prevPortrait) {
-          setShowPortraitWarning(true);
-      }
-    };
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ez-EOM</title>
     
-    // Initial check
-    const initialPortrait = window.innerHeight > window.innerWidth;
-    setIsPortrait(initialPortrait);
-    setShowPortraitWarning(initialPortrait);
-    setWindowSize({ width: window.innerWidth, height: window.innerHeight });
-
-    window.addEventListener('resize', handleResize);
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
-    // Safety: Clear touches on window blur/focus (fixes stuck touches after Camera use)
-    const handleFocus = () => {
-        activeTouches.current.clear();
-        adjustTouches.current.clear();
-        if (longPressTimer.current) clearTimeout(longPressTimer.current);
-        setIsRearranging(false);
-        setDraggedIndex(null);
-    };
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('blur', handleFocus);
-
-    return () => {
-        window.removeEventListener('resize', handleResize);
-        window.removeEventListener('focus', handleFocus);
-        window.removeEventListener('blur', handleFocus);
-    };
-  }, []);
-
-  // --- Helpers ---
-  
-  const getGridAreaStats = () => {
-    const w = windowSize.width;
-    const h = windowSize.height;
-
-    if (isPortrait) {
-        // PORTRAIT: Force a "Horizontal Rectangle" shape
-        const forcedHeight = w * 0.65; 
-        return {
-            w: w,
-            h: forcedHeight,
-            paddingTop: 0, 
-            marginTop: 56, 
-            isFullHeight: false
-        };
-    } else {
-        // LANDSCAPE: Fill Screen
-        return {
-            w: w,
-            h: h,
-            paddingTop: 56, 
-            marginTop: 0,
-            isFullHeight: true
-        };
-    }
-  };
-
-  const getCellDimensions = () => {
-    const stats = getGridAreaStats();
-    const cellW = (stats.w - 12) / 3;
-    const deduction = stats.paddingTop + 12;
-    const cellH = (stats.h - deduction) / 3;
-    return { w: cellW, h: cellH };
-  };
-
-  const getPreviewDimensions = () => {
-    const cellDims = getCellDimensions();
-    const magnification = 2;
-    const previewW = cellDims.w * magnification;
-    const previewH = cellDims.h * magnification;
-    return { w: previewW, h: previewH, magnification };
-  };
-
-  const getAngle = (t1, t2) => {
-    const dx = t1.clientX - t2.clientX;
-    const dy = t1.clientY - t2.clientY;
-    return Math.atan2(dy, dx) * (180 / Math.PI);
-  };
-
-  const getDistance = (t1, t2) => {
-    const dx = t1.clientX - t2.clientX;
-    const dy = t1.clientY - t2.clientY;
-    return Math.hypot(dx, dy);
-  };
-
-  const getCenter = (t1, t2) => ({
-    x: (t1.clientX + t2.clientX) / 2,
-    y: (t1.clientY + t2.clientY) / 2,
-  });
-
-  // --- Save / Export Function ---
-  const handleSave = async () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    const exportWidth = 3000;
-    const cellDims = getCellDimensions();
-    const gridRatio = (cellDims.w * 3) / (cellDims.h * 3); 
-    const exportHeight = exportWidth / gridRatio;
-    
-    canvas.width = exportWidth;
-    canvas.height = exportHeight;
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    ctx.fillStyle = '#ffffff'; 
-    ctx.fillRect(0, 0, exportWidth, exportHeight);
-
-    const cW = exportWidth / 3;
-    const cH = exportHeight / 3;
-
-    const loadImage = (url) => new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = url;
-    });
-
-    try {
-        for (let i = 0; i < 9; i++) {
-            const photo = grid[i];
-            const row = Math.floor(i / 3);
-            const col = i % 3;
-            
-            const dx = col * cW;
-            const dy = row * cH;
-            
-            if (!photo) {
-                ctx.fillStyle = '#e2e8f0'; 
-                ctx.fillRect(dx, dy, cW, cH);
-                continue;
-            }
-
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(dx, dy, cW, cH);
-            ctx.clip();
-
-            const img = await loadImage(photo.url);
-            
-            const cx = dx + cW / 2;
-            const cy = dy + cH / 2;
-
-            ctx.translate(cx, cy);
-            
-            const scaleFactorX = cW / cellDims.w;
-            const scaleFactor = scaleFactorX; 
-
-            ctx.translate(photo.x * scaleFactor, photo.y * scaleFactor);
-            ctx.rotate((photo.rotation || 0) * Math.PI / 180);
-            ctx.scale(photo.scale, photo.scale);
-
-            const imgRatio = img.width / img.height;
-            const drawW = cW;
-            const drawH = drawW / imgRatio;
-
-            ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-            ctx.restore();
+    <style>
+        /* Prevent bounce/scroll on mobile */
+        body { 
+            overscroll-behavior: none; 
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
-
-        const link = document.createElement('a');
-        link.download = 'ez-eom-grid.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-
-    } catch (err) {
-        console.error("Save failed", err);
-        alert("Failed to generate image. Please try again.");
-    }
-  };
-
-  // --- Image Handling ---
-  const handleFileUpload = (e, index = null) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) {
-      e.target.value = '';
-      return;
-    }
-
-    if (index !== null) {
-      const file = files[0];
-      const url = URL.createObjectURL(file);
-      setPendingPhoto({ id: Math.random().toString(36).substr(2, 9), url, file, index });
-      setTempTransform({ x: 0, y: 0, scale: 1, rotation: 0 }); 
-      setAdjustingIndex(index); 
-      setDeleteConfirm(false);
-      setShowRotationControl(false);
-    } else {
-      const newPhotos = files.map(file => ({
-        id: Math.random().toString(36).substr(2, 9),
-        url: URL.createObjectURL(file),
-        x: 0, y: 0, scale: 1, rotation: 0, 
-        file
-      }));
-
-      setGrid(prevGrid => {
-        const newGrid = [...prevGrid];
-        let photoIndex = 0;
-        for (let i = 0; i < 9 && photoIndex < newPhotos.length; i++) {
-          if (!newGrid[i]) {
-            newGrid[i] = newPhotos[photoIndex];
-            photoIndex++;
-          }
+        /* Hide scrollbar */
+        ::-webkit-scrollbar {
+            display: none;
         }
-        return newGrid;
-      });
-    }
-    e.target.value = '';
-  };
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 overflow-hidden">
+    <div id="root" class="w-full h-full"></div>
 
-  const removePhoto = (index, e) => {
-    if (e) e.stopPropagation();
-    lastTapTime.current = 0;
-    setGrid(prev => {
-      const newGrid = [...prev];
-      newGrid[index] = null;
-      return newGrid;
-    });
-    if (selectedIndex === index) setSelectedIndex(null);
-  };
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
 
-  // --- Main Grid Interaction ---
+        // --- Inline Icons (Lucide) ---
+        const Icon = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {children}
+            </svg>
+        );
+        const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>;
+        const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>;
+        const XIcon = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></Icon>;
+        const ImagePlus = (p) => <Icon {...p}><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><line x1="16" y1="5" x2="22" y2="5"/><line x1="19" y1="2" x2="19" y2="8"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></Icon>;
+        const Smartphone = (p) => <Icon {...p}><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></Icon>;
+        const Check = (p) => <Icon {...p}><path d="M20 6 9 17l-5-5"/></Icon>;
+        const ZoomIn = (p) => <Icon {...p}><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/></Icon>;
+        const Trash2 = (p) => <Icon {...p}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
+        const RotateCw = (p) => <Icon {...p}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></Icon>;
+        const Eye = (p) => <Icon {...p}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>;
 
-  const handlePointerDown = (index, e) => {
-    if (adjustingIndex !== null) return;
-    if (e.type === 'mousedown' && e.button !== 0) return;
+        // --- Main App Logic ---
+        const App = () => {
+            const [isPortrait, setIsPortrait] = useState(false);
+            const [showPortraitWarning, setShowPortraitWarning] = useState(false);
+            const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+            const [grid, setGrid] = useState(Array(9).fill(null));
+            
+            // Interaction State
+            const [draggedIndex, setDraggedIndex] = useState(null);
+            const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+            const [selectedIndex, setSelectedIndex] = useState(null); 
+            const [isRearranging, setIsRearranging] = useState(false);
 
-    activeGridIndex.current = index;
-    isPanning.current = false;
+            // Preview/Edit State
+            const [adjustingIndex, setAdjustingIndex] = useState(null);
+            const [pendingPhoto, setPendingPhoto] = useState(null); 
+            const [tempTransform, setTempTransform] = useState({ x: 0, y: 0, scale: 1, rotation: 0 });
+            const [deleteConfirm, setDeleteConfirm] = useState(false); 
+            const [showRotationControl, setShowRotationControl] = useState(false);
+            const [showEyeGuide, setShowEyeGuide] = useState(true); 
+            
+            // Refs
+            const containerRef = useRef(null);
+            const gridRef = useRef(null);
+            const fileInputRefs = useRef({}); 
+            
+            // Touch Refs
+            const activeTouches = useRef(new Map());
+            const activeGridIndex = useRef(null); 
+            const initialTouchDistance = useRef(null);
+            const initialTouchCenter = useRef(null);
+            const initialTransform = useRef({ x: 0, y: 0, scale: 1, rotation: 0 });
+            const longPressTimer = useRef(null);
+            const lastTapTime = useRef(0);
+            const isPanning = useRef(false);
 
-    if (e.type === 'touchstart') {
-      activeTouches.current.clear();
-      Array.from(e.touches).forEach(t => activeTouches.current.set(t.identifier, t));
-    } else {
-      activeTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
-    }
+            // Adjust Mode Refs
+            const adjustTouches = useRef(new Map());
+            const adjustStartDist = useRef(null);
+            const adjustStartAngle = useRef(0); 
+            const adjustStartCenter = useRef(null);
+            const adjustStartTransform = useRef(null);
 
-    const touchCount = activeTouches.current.size;
+            // Orientation Listener
+            useEffect(() => {
+                const handleResize = () => {
+                    const portrait = window.innerHeight > window.innerWidth;
+                    const prevPortrait = isPortrait;
+                    setIsPortrait(portrait);
+                    setWindowSize({ width: window.innerWidth, height: window.innerHeight });
 
-    // 1. Two-Finger Pan/Zoom on Grid
-    if (touchCount === 2 && grid[index]) {
-      if (longPressTimer.current) clearTimeout(longPressTimer.current);
-      setIsRearranging(false);
-      setDraggedIndex(null);
-
-      const touches = Array.from(activeTouches.current.values());
-      initialTouchDistance.current = getDistance(touches[0], touches[1]);
-      initialTouchCenter.current = getCenter(touches[0], touches[1]);
-      initialTransform.current = { ...grid[index] };
-      return;
-    }
-
-    // 2. Single Touch
-    if (touchCount === 1) {
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      
-      initialTouchCenter.current = { x: clientX, y: clientY };
-      if (grid[index]) {
-        initialTransform.current = { ...grid[index] };
-      }
-
-      const now = Date.now();
-      if (now - lastTapTime.current < 300) {
-        if (longPressTimer.current) clearTimeout(longPressTimer.current);
-        
-        // --- DOUBLE TAP DETECTED ---
-        // FIX 1: Deselect any selected cell to prevent immediate swap confusion later
-        setSelectedIndex(null);
-        // FIX 2: Clear touches to prevent state getting stuck if modal opens or camera opens
-        activeTouches.current.clear();
-        activeGridIndex.current = null;
-
-        if (grid[index]) {
-          setPendingPhoto(null);
-          setAdjustingIndex(index);
-          setTempTransform({ ...grid[index] });
-          setDeleteConfirm(false);
-          setShowRotationControl(false);
-          setIsRearranging(false);
-          setDraggedIndex(null);
-        } else {
-          fileInputRefs.current[index]?.click();
-        }
-        lastTapTime.current = 0;
-        return;
-      }
-      lastTapTime.current = now;
-
-      if (grid[index]) {
-        longPressTimer.current = setTimeout(() => {
-          if (!isPanning.current) { 
-            setIsRearranging(true);
-            setDraggedIndex(index);
-            setDragOffset({ x: clientX, y: clientY });
-          }
-        }, 300);
-      }
-    }
-  };
-
-  const handlePointerMove = (e) => {
-    if (adjustingIndex !== null) return;
-
-    if (e.type === 'touchmove') {
-      activeTouches.current.clear();
-      Array.from(e.touches).forEach(t => activeTouches.current.set(t.identifier, t));
-    } else if (activeTouches.current.has('mouse')) {
-      activeTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
-    }
-
-    const touchCount = activeTouches.current.size;
-    const targetIndex = activeGridIndex.current;
-
-    if (touchCount === 2 && !isRearranging && targetIndex !== null && grid[targetIndex]) {
-      e.preventDefault();
-      const touches = Array.from(activeTouches.current.values());
-      const newDist = getDistance(touches[0], touches[1]);
-      const newCenter = getCenter(touches[0], touches[1]);
-      const scaleChange = newDist / initialTouchDistance.current;
-      const dx = newCenter.x - initialTouchCenter.current.x;
-      const dy = newCenter.y - initialTouchCenter.current.y;
-
-      setGrid(prev => {
-        const newGrid = [...prev];
-        const item = { ...initialTransform.current };
-        newGrid[targetIndex] = {
-          ...newGrid[targetIndex],
-          scale: Math.max(0.1, Math.min(5, item.scale * scaleChange)), 
-          x: item.x + dx,
-          y: item.y + dy
-        };
-        return newGrid;
-      });
-      return;
-    }
-
-    if (touchCount === 1 && targetIndex !== null) {
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-        if (isRearranging && draggedIndex !== null) {
-            e.preventDefault();
-            setDragOffset({ x: clientX, y: clientY });
-            return;
-        }
-
-        if (!isRearranging && grid[targetIndex]) {
-            const dx = clientX - initialTouchCenter.current.x;
-            const dy = clientY - initialTouchCenter.current.y;
-            const moveDist = Math.hypot(dx, dy);
-
-            if (moveDist > 5) {
-                isPanning.current = true;
-                if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                    if (portrait && !prevPortrait) {
+                        setShowPortraitWarning(true);
+                    }
+                };
                 
-                e.preventDefault();
+                const initialPortrait = window.innerHeight > window.innerWidth;
+                setIsPortrait(initialPortrait);
+                setShowPortraitWarning(initialPortrait);
+                
+                window.addEventListener('resize', handleResize);
+                
+                // Safety: Clear touches on window blur/focus
+                const handleFocus = () => {
+                    activeTouches.current.clear();
+                    adjustTouches.current.clear();
+                    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                    setIsRearranging(false);
+                    setDraggedIndex(null);
+                };
+                window.addEventListener('focus', handleFocus);
+                window.addEventListener('blur', handleFocus);
+
+                return () => {
+                    window.removeEventListener('resize', handleResize);
+                    window.removeEventListener('focus', handleFocus);
+                    window.removeEventListener('blur', handleFocus);
+                };
+            }, []);
+
+            // --- Helpers ---
+            const getGridAreaStats = () => {
+                const w = windowSize.width;
+                const h = windowSize.height;
+
+                if (isPortrait) {
+                    const forcedHeight = w * 0.65; 
+                    return {
+                        w: w,
+                        h: forcedHeight,
+                        paddingTop: 0, 
+                        marginTop: 56, 
+                        isFullHeight: false
+                    };
+                } else {
+                    return {
+                        w: w,
+                        h: h,
+                        paddingTop: 56, 
+                        marginTop: 0,
+                        isFullHeight: true
+                    };
+                }
+            };
+
+            const getCellDimensions = () => {
+                const stats = getGridAreaStats();
+                const cellW = (stats.w - 12) / 3;
+                const deduction = stats.paddingTop + 12;
+                const cellH = (stats.h - deduction) / 3;
+                return { w: cellW, h: cellH };
+            };
+
+            const getPreviewDimensions = () => {
+                const cellDims = getCellDimensions();
+                const magnification = 2;
+                const previewW = cellDims.w * magnification;
+                const previewH = cellDims.h * magnification;
+                return { w: previewW, h: previewH, magnification };
+            };
+
+            const getAngle = (t1, t2) => {
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                return Math.atan2(dy, dx) * (180 / Math.PI);
+            };
+
+            const getDistance = (t1, t2) => {
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                return Math.hypot(dx, dy);
+            };
+
+            const getCenter = (t1, t2) => ({
+                x: (t1.clientX + t2.clientX) / 2,
+                y: (t1.clientY + t2.clientY) / 2,
+            });
+
+            // --- Save / Export Function ---
+            const handleSave = async () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                const exportWidth = 3000;
+                const cellDims = getCellDimensions();
+                const gridRatio = (cellDims.w * 3) / (cellDims.h * 3); 
+                const exportHeight = exportWidth / gridRatio;
+                
+                canvas.width = exportWidth;
+                canvas.height = exportHeight;
+
+                ctx.fillStyle = '#ffffff'; 
+                ctx.fillRect(0, 0, exportWidth, exportHeight);
+
+                const cW = exportWidth / 3;
+                const cH = exportHeight / 3;
+
+                const loadImage = (url) => new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = "anonymous";
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = url;
+                });
+
+                try {
+                    for (let i = 0; i < 9; i++) {
+                        const photo = grid[i];
+                        const row = Math.floor(i / 3);
+                        const col = i % 3;
+                        
+                        const dx = col * cW;
+                        const dy = row * cH;
+                        
+                        if (!photo) {
+                            ctx.fillStyle = '#e2e8f0'; 
+                            ctx.fillRect(dx, dy, cW, cH);
+                            continue;
+                        }
+
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(dx, dy, cW, cH);
+                        ctx.clip();
+
+                        const img = await loadImage(photo.url);
+                        
+                        const cx = dx + cW / 2;
+                        const cy = dy + cH / 2;
+
+                        ctx.translate(cx, cy);
+                        
+                        const scaleFactorX = cW / cellDims.w;
+                        const scaleFactor = scaleFactorX; 
+
+                        ctx.translate(photo.x * scaleFactor, photo.y * scaleFactor);
+                        ctx.rotate((photo.rotation || 0) * Math.PI / 180);
+                        ctx.scale(photo.scale, photo.scale);
+
+                        const imgRatio = img.width / img.height;
+                        const drawW = cW;
+                        const drawH = drawW / imgRatio;
+
+                        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+                        ctx.restore();
+                    }
+
+                    const link = document.createElement('a');
+                    link.download = 'ez-eom-grid.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+
+                } catch (err) {
+                    console.error("Save failed", err);
+                    alert("Failed to generate image. Please try again.");
+                }
+            };
+
+            const handleFileUpload = (e, index = null) => {
+                const files = Array.from(e.target.files);
+                if (!files.length) {
+                    e.target.value = '';
+                    return;
+                }
+
+                if (index !== null) {
+                    const file = files[0];
+                    const url = URL.createObjectURL(file);
+                    setPendingPhoto({ id: Math.random().toString(36).substr(2, 9), url, file, index });
+                    setTempTransform({ x: 0, y: 0, scale: 1, rotation: 0 }); 
+                    setAdjustingIndex(index); 
+                    setDeleteConfirm(false);
+                    setShowRotationControl(false);
+                } else {
+                    const newPhotos = files.map(file => ({
+                        id: Math.random().toString(36).substr(2, 9),
+                        url: URL.createObjectURL(file),
+                        x: 0, y: 0, scale: 1, rotation: 0, 
+                        file
+                    }));
+
+                    setGrid(prevGrid => {
+                        const newGrid = [...prevGrid];
+                        let photoIndex = 0;
+                        for (let i = 0; i < 9 && photoIndex < newPhotos.length; i++) {
+                            if (!newGrid[i]) {
+                                newGrid[i] = newPhotos[photoIndex];
+                                photoIndex++;
+                            }
+                        }
+                        return newGrid;
+                    });
+                }
+                e.target.value = '';
+            };
+
+            const removePhoto = (index, e) => {
+                if (e) e.stopPropagation();
+                lastTapTime.current = 0;
                 setGrid(prev => {
                     const newGrid = [...prev];
-                    const item = { ...initialTransform.current };
-                    newGrid[targetIndex] = {
-                        ...newGrid[targetIndex],
-                        x: item.x + dx,
-                        y: item.y + dy
-                    };
+                    newGrid[index] = null;
                     return newGrid;
                 });
-            }
-        }
-    }
-  };
+                if (selectedIndex === index) setSelectedIndex(null);
+            };
 
-  const handlePointerUp = (e) => {
-    if (adjustingIndex !== null) return; 
+            // --- Main Grid Interaction ---
+            const handlePointerDown = (index, e) => {
+                if (adjustingIndex !== null) return;
+                if (e.type === 'mousedown' && e.button !== 0) return;
 
-    if (e.type === 'touchend' || e.type === 'touchcancel') {
-      activeTouches.current.clear();
-      Array.from(e.touches).forEach(t => activeTouches.current.set(t.identifier, t));
-    } else {
-      activeTouches.current.delete('mouse');
-    }
+                activeGridIndex.current = index;
+                isPanning.current = false;
 
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                if (e.type === 'touchstart') {
+                    activeTouches.current.clear();
+                    Array.from(e.touches).forEach(t => activeTouches.current.set(t.identifier, t));
+                } else {
+                    activeTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
+                }
 
-    if (isRearranging && draggedIndex !== null) {
-      const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
-      const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
-      
-      const dragEl = document.getElementById('drag-ghost');
-      if (dragEl) dragEl.style.display = 'none';
-      const elementBelow = document.elementFromPoint(clientX, clientY);
-      if (dragEl) dragEl.style.display = 'block';
+                const touchCount = activeTouches.current.size;
 
-      const droppable = elementBelow?.closest('[data-grid-index]');
-      if (droppable) {
-        const targetIndex = parseInt(droppable.getAttribute('data-grid-index'));
-        if (targetIndex !== draggedIndex && !isNaN(targetIndex)) {
-          swapItems(draggedIndex, targetIndex);
-        }
-      }
-      setIsRearranging(false);
-      setDraggedIndex(null);
-    } else {
-      if (activeTouches.current.size === 0 && !isRearranging && !isPanning.current) {
-        const targetIndex = activeGridIndex.current;
-        if (targetIndex !== null && grid[targetIndex]) {
-           handleTap(targetIndex);
-        }
-      }
-    }
-    
-    if (activeTouches.current.size === 0) {
-        activeGridIndex.current = null;
-        isPanning.current = false;
-    }
-  };
+                if (touchCount === 2 && grid[index]) {
+                    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                    setIsRearranging(false);
+                    setDraggedIndex(null);
 
-  const handleTap = (index) => {
-    if (selectedIndex === null) {
-      setSelectedIndex(index);
-    } else if (selectedIndex === index) {
-      setSelectedIndex(null);
-    } else {
-      swapItems(selectedIndex, index);
-      setSelectedIndex(null);
-    }
-  };
+                    const touches = Array.from(activeTouches.current.values());
+                    initialTouchDistance.current = getDistance(touches[0], touches[1]);
+                    initialTouchCenter.current = getCenter(touches[0], touches[1]);
+                    initialTransform.current = { ...grid[index] };
+                    return;
+                }
 
-  const swapItems = (fromIndex, toIndex) => {
-    setGrid(prev => {
-      const newGrid = [...prev];
-      const temp = newGrid[fromIndex];
-      newGrid[fromIndex] = newGrid[toIndex];
-      newGrid[toIndex] = temp;
-      return newGrid;
-    });
-  };
+                if (touchCount === 1) {
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    
+                    initialTouchCenter.current = { x: clientX, y: clientY };
+                    if (grid[index]) {
+                        initialTransform.current = { ...grid[index] };
+                    }
 
-  // --- Adjust Modal Handlers ---
-
-  const handleAdjustStart = (e) => {
-    setDeleteConfirm(false);
-    if (e.type === 'mousedown' && e.button !== 0) return;
-    e.preventDefault();
-
-    if (e.type === 'touchstart') {
-      adjustTouches.current.clear();
-      Array.from(e.touches).forEach(t => adjustTouches.current.set(t.identifier, t));
-    } else {
-      adjustTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
-    }
-
-    const touches = Array.from(adjustTouches.current.values());
-    
-    if (touches.length === 1) {
-      adjustStartCenter.current = { x: touches[0].clientX, y: touches[0].clientY };
-      adjustStartTransform.current = { ...tempTransform };
-    } else if (touches.length >= 2) {
-      adjustStartDist.current = getDistance(touches[0], touches[1]);
-      adjustStartAngle.current = getAngle(touches[0], touches[1]); 
-      adjustStartCenter.current = getCenter(touches[0], touches[1]);
-      adjustStartTransform.current = { ...tempTransform };
-    }
-  };
-
-  const handleAdjustMove = (e) => {
-    e.preventDefault();
-    if (e.type === 'touchmove') {
-      adjustTouches.current.clear();
-      Array.from(e.touches).forEach(t => adjustTouches.current.set(t.identifier, t));
-    } else if (adjustTouches.current.has('mouse')) {
-      adjustTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
-    }
-
-    const touches = Array.from(adjustTouches.current.values());
-    if (!adjustStartTransform.current) return;
-
-    const { magnification } = getPreviewDimensions();
-
-    if (touches.length === 1) {
-      const dx = touches[0].clientX - adjustStartCenter.current.x;
-      const dy = touches[0].clientY - adjustStartCenter.current.y;
-      
-      setTempTransform({
-        ...adjustStartTransform.current,
-        x: adjustStartTransform.current.x + (dx / magnification), 
-        y: adjustStartTransform.current.y + (dy / magnification)
-      });
-
-    } else if (touches.length >= 2) {
-      const newDist = getDistance(touches[0], touches[1]);
-      const newAngle = getAngle(touches[0], touches[1]);
-      const newCenter = getCenter(touches[0], touches[1]);
-      
-      const scaleChange = newDist / adjustStartDist.current;
-      const angleChange = newAngle - adjustStartAngle.current;
-      
-      const dx = newCenter.x - adjustStartCenter.current.x;
-      const dy = newCenter.y - adjustStartCenter.current.y;
-
-      setTempTransform({
-        ...adjustStartTransform.current,
-        scale: Math.max(0.1, Math.min(5, adjustStartTransform.current.scale * scaleChange)),
-        rotation: adjustStartTransform.current.rotation + angleChange,
-        x: adjustStartTransform.current.x + (dx / magnification),
-        y: adjustStartTransform.current.y + (dy / magnification)
-      });
-    }
-  };
-
-  const handleAdjustEnd = (e) => {
-    if (e.type === 'touchend' || e.type === 'touchcancel') {
-      adjustTouches.current.clear();
-      Array.from(e.touches).forEach(t => adjustTouches.current.set(t.identifier, t));
-    } else {
-      adjustTouches.current.delete('mouse');
-    }
-
-    if (adjustTouches.current.size === 0) {
-      adjustStartTransform.current = null;
-    } else if (adjustTouches.current.size === 1) {
-      const touches = Array.from(adjustTouches.current.values());
-      adjustStartCenter.current = { x: touches[0].clientX, y: touches[0].clientY };
-      adjustStartTransform.current = { ...tempTransform };
-    }
-  };
-
-  const saveAdjust = () => {
-    setGrid(prev => {
-      const newGrid = [...prev];
-      const targetIndex = pendingPhoto ? pendingPhoto.index : adjustingIndex;
-      const photoData = pendingPhoto ? {
-        id: pendingPhoto.id,
-        url: pendingPhoto.url,
-        file: pendingPhoto.file,
-        ...tempTransform 
-      } : {
-        ...newGrid[adjustingIndex],
-        ...tempTransform 
-      };
-      newGrid[targetIndex] = photoData;
-      return newGrid;
-    });
-    setAdjustingIndex(null);
-    setPendingPhoto(null);
-  };
-
-  const cancelAdjust = () => {
-    setAdjustingIndex(null);
-    setPendingPhoto(null);
-  };
-
-  const handleDelete = (e) => {
-    e.stopPropagation(); 
-    if (deleteConfirm) {
-        removePhoto(adjustingIndex, { stopPropagation: () => {} });
-        setAdjustingIndex(null);
-        setDeleteConfirm(false);
-    } else {
-        setDeleteConfirm(true);
-    }
-  };
-
-  // --- Effects ---
-  useEffect(() => {
-    if (adjustingIndex === null) {
-      window.addEventListener('mousemove', handlePointerMove);
-      window.addEventListener('mouseup', handlePointerUp);
-      window.addEventListener('touchmove', handlePointerMove, { passive: false });
-      window.addEventListener('touchend', handlePointerUp);
-      window.addEventListener('touchcancel', handlePointerUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handlePointerMove);
-      window.removeEventListener('mouseup', handlePointerUp);
-      window.removeEventListener('touchmove', handlePointerMove);
-      window.removeEventListener('touchend', handlePointerUp);
-      window.removeEventListener('touchcancel', handlePointerUp);
-    };
-  }, [draggedIndex, isRearranging, adjustingIndex]);
-
-  // --- Render ---
-
-  if (showPortraitWarning && isPortrait) {
-    return (
-      <div className="h-screen w-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center space-y-6 select-none">
-        <Smartphone size={64} className="animate-pulse text-indigo-400" />
-        <div>
-          <h2 className="text-2xl font-bold mb-2">Please Rotate Device</h2>
-          <p className="text-slate-400">Ez-EOM is optimized for horizontal (landscape) mode.</p>
-        </div>
-        <button onClick={() => setShowPortraitWarning(false)} className="mt-8 text-xs text-slate-500 underline">Continue anyway</button>
-      </div>
-    );
-  }
-
-  const activePhotoUrl = pendingPhoto ? pendingPhoto.url : (adjustingIndex !== null && grid[adjustingIndex] ? grid[adjustingIndex].url : null);
-  const previewDims = getPreviewDimensions(); 
-  const previewTransform = `translate(-50%, -50%) translate(${tempTransform.x * previewDims.magnification}px, ${tempTransform.y * previewDims.magnification}px) rotate(${tempTransform.rotation}deg) scale(${tempTransform.scale})`;
-  
-  const gridStats = getGridAreaStats();
-
-  return (
-    <div className="h-screen w-screen bg-slate-50 overflow-hidden relative touch-none select-none flex flex-col">
-      
-      {/* Top Toolbar */}
-      <div className="absolute top-0 left-0 w-full z-40 bg-white/90 backdrop-blur-md px-4 h-14 flex items-center justify-between shadow-sm">
-        <h1 className="font-bold text-lg text-slate-800 tracking-tight">Ez-EOM</h1>
-        
-        <div className="flex gap-3">
-          <label className="text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors flex items-center gap-1" title="Batch Upload">
-            <Upload size={20} />
-            <span className="text-xs font-medium hidden sm:inline">Upload</span>
-            <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
-          </label>
-          
-          <button 
-            className="text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors flex items-center gap-1"
-            onClick={handleSave}
-            title="Save Image"
-          >
-            <Download size={20} />
-            <span className="text-xs font-medium hidden sm:inline">Save</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Grid Container */}
-      <div 
-        className="w-full h-full bg-slate-100 flex items-start justify-center" 
-        ref={containerRef} 
-        style={{ touchAction: 'none' }}
-      >
-        <div 
-            className={`grid grid-cols-3 grid-rows-3 gap-0.5 border-4 border-white ${gridStats.isFullHeight ? 'pt-14' : ''}`}
-            style={{ 
-                width: gridStats.w, 
-                height: gridStats.h,
-                marginTop: gridStats.marginTop,
-                alignSelf: isPortrait ? 'center' : 'auto' 
-            }}
-            ref={gridRef}
-        >
-          {grid.map((photo, index) => (
-            <div
-              key={index}
-              data-grid-index={index}
-              onMouseDown={(e) => handlePointerDown(index, e)}
-              onTouchStart={(e) => handlePointerDown(index, e)}
-              className={`
-                relative overflow-hidden bg-slate-200
-                ${selectedIndex === index ? 'ring-4 ring-inset ring-indigo-500 z-10' : ''}
-                ${draggedIndex === index && isRearranging ? 'opacity-20' : 'opacity-100'}
-              `}
-            >
-              <input 
-                type="file" 
-                accept="image/*" 
-                className="hidden" 
-                ref={el => fileInputRefs.current[index] = el}
-                onChange={(e) => handleFileUpload(e, index)}
-              />
-
-              {photo ? (
-                <>
-                  <div className="w-full h-full relative overflow-hidden pointer-events-none">
-                    <img 
-                      src={photo.url} 
-                      alt="" 
-                      className="absolute max-w-none origin-center"
-                      style={{ 
-                        left: '50%', top: '50%',
-                        transform: `translate(-50%, -50%) translate(${photo.x}px, ${photo.y}px) rotate(${photo.rotation || 0}deg) scale(${photo.scale})`,
-                        width: '100%', 
-                        height: 'auto'
-                      }} 
-                    />
-                  </div>
-                  <div className="absolute bottom-1 left-1 opacity-0 hover:opacity-100 transition-opacity bg-black/40 rounded-full p-1 pointer-events-none">
-                    <ZoomIn size={10} className="text-white"/>
-                  </div>
-                </>
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-slate-300">
-                  <ImagePlus size={24} />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Drag Ghost */}
-        {draggedIndex !== null && isRearranging && grid[draggedIndex] && (
-          <div 
-            id="drag-ghost"
-            className="fixed pointer-events-none z-50 shadow-2xl ring-2 ring-indigo-500 overflow-hidden"
-            style={{
-              left: dragOffset.x, top: dragOffset.y, width: '120px', height: '80px', 
-              transform: 'translate(-50%, -50%)', backgroundColor: 'white', borderRadius: '8px'
-            }}
-          >
-            <img 
-              src={grid[draggedIndex].url} 
-              className="w-full h-full object-cover"
-              style={{ transform: `scale(${grid[draggedIndex].scale}) rotate(${grid[draggedIndex].rotation || 0}deg) translate(${grid[draggedIndex].x}px, ${grid[draggedIndex].y}px)` }}
-              alt="" 
-            />
-          </div>
-        )}
-      </div>
-
-      {/* --- Adjust Modal Overlay --- */}
-      {adjustingIndex !== null && activePhotoUrl && (
-        <div 
-          className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center animate-in fade-in duration-200"
-          onClick={() => setDeleteConfirm(false)}
-        >
-          
-          <div className="absolute top-4 w-full flex justify-between px-6 z-50">
-             <h2 className="text-white/80 font-medium">
-               {pendingPhoto ? 'Preview & Add' : 'Adjust Photo'}
-             </h2>
-          </div>
-
-          <div className="text-white/50 text-xs mb-2 z-50 pointer-events-none">
-            1 finger move • 2 fingers zoom/rotate
-          </div>
-
-          <div 
-            className="relative w-full h-full overflow-hidden"
-            onMouseDown={handleAdjustStart} onMouseMove={handleAdjustMove} onMouseUp={handleAdjustEnd} onMouseLeave={handleAdjustEnd}
-            onTouchStart={handleAdjustStart} onTouchMove={handleAdjustMove} onTouchEnd={handleAdjustEnd}
-            onClick={(e) => e.stopPropagation()} 
-          >
-             {/* Faint Background Image for Context */}
-             <img 
-                src={activePhotoUrl}
-                className="absolute top-0 left-0 w-full h-full object-cover opacity-30 pointer-events-none"
-                alt="Background Context"
-             />
-
-             <img 
-                src={activePhotoUrl}
-                className="absolute max-w-none origin-center"
-                style={{
-                  left: '50%', top: '50%',
-                  // USE SCALED TRANSFORM FOR PREVIEW
-                  transform: previewTransform,
-                  width: `${previewDims.w}px`, 
-                  height: 'auto'
-                }}
-                alt="Adjusting"
-             />
-
-             {/* Dimmer Mask */}
-             <div 
-               className="absolute top-1/2 left-1/2 pointer-events-none z-10"
-               style={{
-                 width: `${previewDims.w}px`,
-                 height: `${previewDims.h}px`,
-                 transform: 'translate(-50%, -50%)',
-                 boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.7)', 
-                 border: '2px solid rgba(255, 255, 255, 0.5)'
-               }}
-             >
-                {/* Eye Guides (Inside the Crop Box) */}
-                {showEyeGuide && (
-                  <>
-                    <div className="absolute top-1/2 left-[20%] w-20 h-12 -translate-x-1/2 -translate-y-1/2 border-2 border-white/60 rounded-[100%] shadow-sm" />
-                    <div className="absolute top-1/2 left-[80%] w-20 h-12 -translate-x-1/2 -translate-y-1/2 border-2 border-white/60 rounded-[100%] shadow-sm" />
-                  </>
-                )}
-             </div>
-          </div>
-
-          {/* Controls Container */}
-          <div 
-            className="absolute bottom-6 w-full px-6 flex items-center justify-between gap-4 z-50"
-            onClick={(e) => e.stopPropagation()} 
-          >
-            
-            {/* Left: Toggles */}
-            <div className="flex gap-3">
-                <button 
-                    onClick={() => setShowRotationControl(!showRotationControl)}
-                    className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all shadow-lg ${showRotationControl ? 'bg-indigo-500' : 'bg-slate-800'}`}
-                >
-                    <RotateCw size={20} />
-                </button>
-                <button 
-                    onClick={() => setShowEyeGuide(!showEyeGuide)}
-                    className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all shadow-lg ${showEyeGuide ? 'bg-indigo-500' : 'bg-slate-800'}`}
-                >
-                    <Eye size={20} />
-                </button>
-            </div>
-
-            {/* Right: Content Area (Dynamic) */}
-            <div className="flex-1 flex items-center justify-end">
-                
-                {showRotationControl ? (
-                    // --- Rotation Slider Mode ---
-                    <div className="flex-1 bg-black/40 p-2 rounded-xl backdrop-blur-sm flex items-center gap-3 animate-in fade-in slide-in-from-right-4">
-                        <span className="text-white/50 text-xs w-8 text-right font-mono">
-                            {Math.round(tempTransform.rotation)}°
-                        </span>
+                    const now = Date.now();
+                    if (now - lastTapTime.current < 300) {
+                        if (longPressTimer.current) clearTimeout(longPressTimer.current);
                         
-                        <div className="relative flex-1 h-6 flex items-center">
-                            {/* 0-degree Marker */}
-                            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/30 -translate-x-1/2 z-0"></div>
+                        setSelectedIndex(null);
+                        activeTouches.current.clear();
+                        activeGridIndex.current = null;
+
+                        if (grid[index]) {
+                            setPendingPhoto(null);
+                            setAdjustingIndex(index);
+                            setTempTransform({ ...grid[index] });
+                            setDeleteConfirm(false);
+                            setShowRotationControl(false);
+                            setIsRearranging(false);
+                            setDraggedIndex(null);
+                        } else {
+                            fileInputRefs.current[index]?.click();
+                        }
+                        lastTapTime.current = 0;
+                        return;
+                    }
+                    lastTapTime.current = now;
+
+                    if (grid[index]) {
+                        longPressTimer.current = setTimeout(() => {
+                            if (!isPanning.current) { 
+                                setIsRearranging(true);
+                                setDraggedIndex(index);
+                                setDragOffset({ x: clientX, y: clientY });
+                            }
+                        }, 300);
+                    }
+                }
+            };
+
+            const handlePointerMove = (e) => {
+                if (adjustingIndex !== null) return;
+
+                if (e.type === 'touchmove') {
+                    activeTouches.current.clear();
+                    Array.from(e.touches).forEach(t => activeTouches.current.set(t.identifier, t));
+                } else if (activeTouches.current.has('mouse')) {
+                    activeTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
+                }
+
+                const touchCount = activeTouches.current.size;
+                const targetIndex = activeGridIndex.current;
+
+                if (touchCount === 2 && !isRearranging && targetIndex !== null && grid[targetIndex]) {
+                    e.preventDefault();
+                    const touches = Array.from(activeTouches.current.values());
+                    const newDist = getDistance(touches[0], touches[1]);
+                    const newCenter = getCenter(touches[0], touches[1]);
+                    const scaleChange = newDist / initialTouchDistance.current;
+                    const dx = newCenter.x - initialTouchCenter.current.x;
+                    const dy = newCenter.y - initialTouchCenter.current.y;
+
+                    setGrid(prev => {
+                        const newGrid = [...prev];
+                        const item = { ...initialTransform.current };
+                        newGrid[targetIndex] = {
+                            ...newGrid[targetIndex],
+                            scale: Math.max(0.1, Math.min(5, item.scale * scaleChange)), 
+                            x: item.x + dx,
+                            y: item.y + dy
+                        };
+                        return newGrid;
+                    });
+                    return;
+                }
+
+                if (touchCount === 1 && targetIndex !== null) {
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                    if (isRearranging && draggedIndex !== null) {
+                        e.preventDefault();
+                        setDragOffset({ x: clientX, y: clientY });
+                        return;
+                    }
+
+                    if (!isRearranging && grid[targetIndex]) {
+                        const dx = clientX - initialTouchCenter.current.x;
+                        const dy = clientY - initialTouchCenter.current.y;
+                        const moveDist = Math.hypot(dx, dy);
+
+                        if (moveDist > 5) {
+                            isPanning.current = true;
+                            if (longPressTimer.current) clearTimeout(longPressTimer.current);
                             
-                            <input 
-                                type="range" 
-                                min="-45" max="45" 
-                                value={tempTransform.rotation} 
-                                onChange={(e) => setTempTransform(prev => ({...prev, rotation: parseFloat(e.target.value)}))}
-                                className="w-full accent-indigo-500 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer z-10 relative"
-                            />
+                            e.preventDefault();
+                            setGrid(prev => {
+                                const newGrid = [...prev];
+                                const item = { ...initialTransform.current };
+                                newGrid[targetIndex] = {
+                                    ...newGrid[targetIndex],
+                                    x: item.x + dx,
+                                    y: item.y + dy
+                                };
+                                return newGrid;
+                            });
+                        }
+                    }
+                }
+            };
+
+            const handlePointerUp = (e) => {
+                if (adjustingIndex !== null) return; 
+
+                if (e.type === 'touchend' || e.type === 'touchcancel') {
+                    activeTouches.current.clear();
+                    Array.from(e.touches).forEach(t => activeTouches.current.set(t.identifier, t));
+                } else {
+                    activeTouches.current.delete('mouse');
+                }
+
+                if (longPressTimer.current) clearTimeout(longPressTimer.current);
+
+                if (isRearranging && draggedIndex !== null) {
+                    const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+                    const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+                    
+                    const dragEl = document.getElementById('drag-ghost');
+                    if (dragEl) dragEl.style.display = 'none';
+                    const elementBelow = document.elementFromPoint(clientX, clientY);
+                    if (dragEl) dragEl.style.display = 'block';
+
+                    const droppable = elementBelow?.closest('[data-grid-index]');
+                    if (droppable) {
+                        const targetIndex = parseInt(droppable.getAttribute('data-grid-index'));
+                        if (targetIndex !== draggedIndex && !isNaN(targetIndex)) {
+                            swapItems(draggedIndex, targetIndex);
+                        }
+                    }
+                    setIsRearranging(false);
+                    setDraggedIndex(null);
+                } else {
+                    if (activeTouches.current.size === 0 && !isRearranging && !isPanning.current) {
+                        const targetIndex = activeGridIndex.current;
+                        if (targetIndex !== null && grid[targetIndex]) {
+                            handleTap(targetIndex);
+                        }
+                    }
+                }
+                
+                if (activeTouches.current.size === 0) {
+                    activeGridIndex.current = null;
+                    isPanning.current = false;
+                }
+            };
+
+            const handleTap = (index) => {
+                if (selectedIndex === null) {
+                    setSelectedIndex(index);
+                } else if (selectedIndex === index) {
+                    setSelectedIndex(null);
+                } else {
+                    swapItems(selectedIndex, index);
+                    setSelectedIndex(null);
+                }
+            };
+
+            const swapItems = (fromIndex, toIndex) => {
+                setGrid(prev => {
+                    const newGrid = [...prev];
+                    const temp = newGrid[fromIndex];
+                    newGrid[fromIndex] = newGrid[toIndex];
+                    newGrid[toIndex] = temp;
+                    return newGrid;
+                });
+            };
+
+            // --- Adjust Modal Handlers ---
+            const handleAdjustStart = (e) => {
+                setDeleteConfirm(false);
+                if (e.type === 'mousedown' && e.button !== 0) return;
+                e.preventDefault();
+
+                if (e.type === 'touchstart') {
+                    adjustTouches.current.clear();
+                    Array.from(e.touches).forEach(t => adjustTouches.current.set(t.identifier, t));
+                } else {
+                    adjustTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
+                }
+
+                const touches = Array.from(adjustTouches.current.values());
+                
+                if (touches.length === 1) {
+                    adjustStartCenter.current = { x: touches[0].clientX, y: touches[0].clientY };
+                    adjustStartTransform.current = { ...tempTransform };
+                } else if (touches.length >= 2) {
+                    adjustStartDist.current = getDistance(touches[0], touches[1]);
+                    adjustStartAngle.current = getAngle(touches[0], touches[1]); 
+                    adjustStartCenter.current = getCenter(touches[0], touches[1]);
+                    adjustStartTransform.current = { ...tempTransform };
+                }
+            };
+
+            const handleAdjustMove = (e) => {
+                e.preventDefault();
+                if (e.type === 'touchmove') {
+                    adjustTouches.current.clear();
+                    Array.from(e.touches).forEach(t => adjustTouches.current.set(t.identifier, t));
+                } else if (adjustTouches.current.has('mouse')) {
+                    adjustTouches.current.set('mouse', { clientX: e.clientX, clientY: e.clientY });
+                }
+
+                const touches = Array.from(adjustTouches.current.values());
+                if (!adjustStartTransform.current) return;
+
+                const { magnification } = getPreviewDimensions();
+
+                if (touches.length === 1) {
+                    const dx = touches[0].clientX - adjustStartCenter.current.x;
+                    const dy = touches[0].clientY - adjustStartCenter.current.y;
+                    
+                    setTempTransform({
+                        ...adjustStartTransform.current,
+                        x: adjustStartTransform.current.x + (dx / magnification), 
+                        y: adjustStartTransform.current.y + (dy / magnification)
+                    });
+
+                } else if (touches.length >= 2) {
+                    const newDist = getDistance(touches[0], touches[1]);
+                    const newAngle = getAngle(touches[0], touches[1]);
+                    const newCenter = getCenter(touches[0], touches[1]);
+                    
+                    const scaleChange = newDist / adjustStartDist.current;
+                    const angleChange = newAngle - adjustStartAngle.current;
+                    
+                    const dx = newCenter.x - adjustStartCenter.current.x;
+                    const dy = newCenter.y - adjustStartCenter.current.y;
+
+                    setTempTransform({
+                        ...adjustStartTransform.current,
+                        scale: Math.max(0.1, Math.min(5, adjustStartTransform.current.scale * scaleChange)),
+                        rotation: adjustStartTransform.current.rotation + angleChange,
+                        x: adjustStartTransform.current.x + (dx / magnification),
+                        y: adjustStartTransform.current.y + (dy / magnification)
+                    });
+                }
+            };
+
+            const handleAdjustEnd = (e) => {
+                if (e.type === 'touchend' || e.type === 'touchcancel') {
+                    adjustTouches.current.clear();
+                    Array.from(e.touches).forEach(t => adjustTouches.current.set(t.identifier, t));
+                } else {
+                    adjustTouches.current.delete('mouse');
+                }
+
+                if (adjustTouches.current.size === 0) {
+                    adjustStartTransform.current = null;
+                } else if (adjustTouches.current.size === 1) {
+                    const touches = Array.from(adjustTouches.current.values());
+                    adjustStartCenter.current = { x: touches[0].clientX, y: touches[0].clientY };
+                    adjustStartTransform.current = { ...tempTransform };
+                }
+            };
+
+            const saveAdjust = () => {
+                setGrid(prev => {
+                    const newGrid = [...prev];
+                    const targetIndex = pendingPhoto ? pendingPhoto.index : adjustingIndex;
+                    const photoData = pendingPhoto ? {
+                        id: pendingPhoto.id,
+                        url: pendingPhoto.url,
+                        file: pendingPhoto.file,
+                        ...tempTransform 
+                    } : {
+                        ...newGrid[adjustingIndex],
+                        ...tempTransform 
+                    };
+                    newGrid[targetIndex] = photoData;
+                    return newGrid;
+                });
+                setAdjustingIndex(null);
+                setPendingPhoto(null);
+            };
+
+            const cancelAdjust = () => {
+                setAdjustingIndex(null);
+                setPendingPhoto(null);
+            };
+
+            const handleDelete = (e) => {
+                e.stopPropagation(); 
+                if (deleteConfirm) {
+                    removePhoto(adjustingIndex, { stopPropagation: () => {} });
+                    setAdjustingIndex(null);
+                    setDeleteConfirm(false);
+                } else {
+                    setDeleteConfirm(true);
+                }
+            };
+
+            // --- Render ---
+            if (showPortraitWarning && isPortrait) {
+                return (
+                    <div className="h-screen w-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center space-y-6 select-none">
+                        <Smartphone size={64} className="animate-pulse text-indigo-400" />
+                        <div>
+                            <h2 className="text-2xl font-bold mb-2">Please Rotate Device</h2>
+                            <p className="text-slate-400">Ez-EOM is optimized for horizontal (landscape) mode.</p>
+                        </div>
+                        <button onClick={() => setShowPortraitWarning(false)} className="mt-8 text-xs text-slate-500 underline">Continue anyway</button>
+                    </div>
+                );
+            }
+
+            const activePhotoUrl = pendingPhoto ? pendingPhoto.url : (adjustingIndex !== null && grid[adjustingIndex] ? grid[adjustingIndex].url : null);
+            const previewDims = getPreviewDimensions(); 
+            const previewTransform = `translate(-50%, -50%) translate(${tempTransform.x * previewDims.magnification}px, ${tempTransform.y * previewDims.magnification}px) rotate(${tempTransform.rotation}deg) scale(${tempTransform.scale})`;
+            
+            const gridStats = getGridAreaStats();
+
+            return (
+                <div className="h-screen w-screen bg-slate-50 overflow-hidden relative touch-none select-none flex flex-col">
+                    
+                    {/* Top Toolbar */}
+                    <div className="absolute top-0 left-0 w-full z-40 bg-white/90 backdrop-blur-md px-4 h-14 flex items-center justify-between shadow-sm">
+                        <h1 className="font-bold text-lg text-slate-800 tracking-tight">Ez-EOM</h1>
+                        
+                        <div className="flex gap-3">
+                            <label className="text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors flex items-center gap-1" title="Batch Upload">
+                                <Upload size={20} />
+                                <span className="text-xs font-medium hidden sm:inline">Upload</span>
+                                <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
+                            </label>
+                            
+                            <button 
+                                className="text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors flex items-center gap-1"
+                                onClick={handleSave}
+                                title="Save Image"
+                            >
+                                <Download size={20} />
+                                <span className="text-xs font-medium hidden sm:inline">Save</span>
+                            </button>
                         </div>
                     </div>
-                ) : (
-                    // --- Standard Buttons Mode ---
-                    <div className="flex gap-4 animate-in fade-in slide-in-from-right-4">
-                        {/* Delete (Existing Photos Only) */}
-                        {!pendingPhoto && (
-                            <button 
-                                onClick={handleDelete}
-                                className={`${deleteConfirm ? 'bg-red-500 w-auto px-4' : 'bg-slate-800 w-12'} h-12 rounded-full flex items-center justify-center text-white transition-all duration-200 shadow-lg`}
+
+                    {/* Main Grid Container */}
+                    <div 
+                        className="w-full h-full bg-slate-100 flex items-start justify-center" 
+                        ref={containerRef} 
+                        style={{ touchAction: 'none' }}
+                    >
+                        <div 
+                            className={`grid grid-cols-3 grid-rows-3 gap-0.5 border-4 border-white ${gridStats.isFullHeight ? 'pt-14' : ''}`}
+                            style={{ 
+                                width: gridStats.w, 
+                                height: gridStats.h,
+                                marginTop: gridStats.marginTop,
+                                alignSelf: isPortrait ? 'center' : 'auto' 
+                            }}
+                            ref={gridRef}
+                        >
+                            {grid.map((photo, index) => (
+                                <div
+                                    key={index}
+                                    data-grid-index={index}
+                                    onMouseDown={(e) => handlePointerDown(index, e)}
+                                    onTouchStart={(e) => handlePointerDown(index, e)}
+                                    className={`
+                                        relative overflow-hidden bg-slate-200
+                                        ${selectedIndex === index ? 'ring-4 ring-inset ring-indigo-500 z-10' : ''}
+                                        ${draggedIndex === index && isRearranging ? 'opacity-20' : 'opacity-100'}
+                                    `}
+                                >
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        className="hidden" 
+                                        ref={el => fileInputRefs.current[index] = el}
+                                        onChange={(e) => handleFileUpload(e, index)}
+                                    />
+
+                                    {photo ? (
+                                        <>
+                                            <div className="w-full h-full relative overflow-hidden pointer-events-none">
+                                                <img 
+                                                    src={photo.url} 
+                                                    alt="" 
+                                                    className="absolute max-w-none origin-center"
+                                                    style={{ 
+                                                        left: '50%', top: '50%',
+                                                        transform: `translate(-50%, -50%) translate(${photo.x}px, ${photo.y}px) rotate(${photo.rotation || 0}deg) scale(${photo.scale})`,
+                                                        width: '100%', 
+                                                        height: 'auto'
+                                                    }} 
+                                                />
+                                            </div>
+                                            <div className="absolute bottom-1 left-1 opacity-0 hover:opacity-100 transition-opacity bg-black/40 rounded-full p-1 pointer-events-none">
+                                                <ZoomIn size={10} className="text-white"/>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                            <ImagePlus size={24} />
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Drag Ghost */}
+                        {draggedIndex !== null && isRearranging && grid[draggedIndex] && (
+                            <div 
+                                id="drag-ghost"
+                                className="fixed pointer-events-none z-50 shadow-2xl ring-2 ring-indigo-500 overflow-hidden"
+                                style={{
+                                    left: dragOffset.x, top: dragOffset.y, width: '120px', height: '80px', 
+                                    transform: 'translate(-50%, -50%)', backgroundColor: 'white', borderRadius: '8px'
+                                }}
                             >
-                                {deleteConfirm ? <span className="text-xs font-bold whitespace-nowrap">Confirm</span> : <Trash2 size={20} />}
-                            </button>
+                                <img 
+                                    src={grid[draggedIndex].url} 
+                                    className="w-full h-full object-cover"
+                                    style={{ transform: `scale(${grid[draggedIndex].scale}) rotate(${grid[draggedIndex].rotation || 0}deg) translate(${grid[draggedIndex].x}px, ${grid[draggedIndex].y}px)` }}
+                                    alt="" 
+                                />
+                            </div>
                         )}
-                        
-                        <button onClick={cancelAdjust} className="bg-slate-800 text-white px-6 py-3 rounded-full font-medium active:scale-95 transition-transform">
-                            Cancel
-                        </button>
-                        
-                        <button onClick={saveAdjust} className="bg-indigo-600 text-white px-8 py-3 rounded-full font-bold shadow-lg shadow-indigo-900/50 flex items-center gap-2 active:scale-95 transition-transform">
-                            <Check size={18} />
-                            {pendingPhoto ? 'Add' : 'Save'}
-                        </button>
                     </div>
-                )}
-            </div>
-          </div>
-        </div>
-      )}
 
-    </div>
-  );
-};
+                    {/* --- Adjust Modal Overlay --- */}
+                    {adjustingIndex !== null && activePhotoUrl && (
+                        <div 
+                            className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center animate-in fade-in duration-200"
+                            onClick={() => setDeleteConfirm(false)}
+                        >
+                            <div className="absolute top-4 w-full flex justify-between px-6 z-50">
+                                <h2 className="text-white/80 font-medium">
+                                    {pendingPhoto ? 'Preview & Add' : 'Adjust Photo'}
+                                </h2>
+                            </div>
 
-export default App;
+                            <div className="text-white/50 text-xs mb-2 z-50 pointer-events-none">
+                                1 finger move • 2 fingers zoom/rotate
+                            </div>
+
+                            <div 
+                                className="relative w-full h-full overflow-hidden"
+                                onMouseDown={handleAdjustStart} onMouseMove={handleAdjustMove} onMouseUp={handleAdjustEnd} onMouseLeave={handleAdjustEnd}
+                                onTouchStart={handleAdjustStart} onTouchMove={handleAdjustMove} onTouchEnd={handleAdjustEnd}
+                                onClick={(e) => e.stopPropagation()} 
+                            >
+                                <img 
+                                    src={activePhotoUrl}
+                                    className="absolute top-0 left-0 w-full h-full object-cover opacity-30 pointer-events-none"
+                                    alt="Background Context"
+                                />
+
+                                <img 
+                                    src={activePhotoUrl}
+                                    className="absolute max-w-none origin-center"
+                                    style={{
+                                        left: '50%', top: '50%',
+                                        transform: previewTransform,
+                                        width: `${previewDims.w}px`, 
+                                        height: 'auto'
+                                    }}
+                                    alt="Adjusting"
+                                />
+
+                                {/* Dimmer Mask & Guides */}
+                                <div 
+                                    className="absolute top-1/2 left-1/2 pointer-events-none z-10"
+                                    style={{
+                                        width: `${previewDims.w}px`,
+                                        height: `${previewDims.h}px`,
+                                        transform: 'translate(-50%, -50%)',
+                                        boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.7)', 
+                                        border: '2px solid rgba(255, 255, 255, 0.5)'
+                                    }}
+                                >
+                                    {/* Eye Guides */}
+                                    {showEyeGuide && (
+                                        <>
+                                            <div className="absolute top-1/2 left-[20%] w-20 h-12 -translate-x-1/2 -translate-y-1/2 border-2 border-white/60 rounded-[100%] shadow-sm" />
+                                            <div className="absolute top-1/2 left-[80%] w-20 h-12 -translate-x-1/2 -translate-y-1/2 border-2 border-white/60 rounded-[100%] shadow-sm" />
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Controls Container */}
+                            <div 
+                                className="absolute bottom-6 w-full px-6 flex items-center justify-between gap-4 z-50"
+                                onClick={(e) => e.stopPropagation()} 
+                            >
+                                <div className="flex gap-3">
+                                    <button 
+                                        onClick={() => setShowRotationControl(!showRotationControl)}
+                                        className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all shadow-lg ${showRotationControl ? 'bg-indigo-500' : 'bg-slate-800'}`}
+                                    >
+                                        <RotateCw size={20} />
+                                    </button>
+                                    <button 
+                                        onClick={() => setShowEyeGuide(!showEyeGuide)}
+                                        className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all shadow-lg ${showEyeGuide ? 'bg-indigo-500' : 'bg-slate-800'}`}
+                                    >
+                                        <Eye size={20} />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 flex items-center justify-end">
+                                    {showRotationControl ? (
+                                        <div className="flex-1 bg-black/40 p-2 rounded-xl backdrop-blur-sm flex items-center gap-3 animate-in fade-in slide-in-from-right-4">
+                                            <span className="text-white/50 text-xs w-8 text-right font-mono">
+                                                {Math.round(tempTransform.rotation)}°
+                                            </span>
+                                            
+                                            <div className="relative flex-1 h-6 flex items-center">
+                                                <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/30 -translate-x-1/2 z-0"></div>
+                                                <input 
+                                                    type="range" 
+                                                    min="-45" max="45" 
+                                                    value={tempTransform.rotation} 
+                                                    onChange={(e) => setTempTransform(prev => ({...prev, rotation: parseFloat(e.target.value)}))}
+                                                    className="w-full accent-indigo-500 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer z-10 relative"
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-4 animate-in fade-in slide-in-from-right-4">
+                                            {!pendingPhoto && (
+                                                <button 
+                                                    onClick={handleDelete}
+                                                    className={`${deleteConfirm ? 'bg-red-500 w-auto px-4' : 'bg-slate-800 w-12'} h-12 rounded-full flex items-center justify-center text-white transition-all duration-200 shadow-lg`}
+                                                >
+                                                    {deleteConfirm ? <span className="text-xs font-bold whitespace-nowrap">Confirm</span> : <Trash2 size={20} />}
+                                                </button>
+                                            )}
+                                            
+                                            <button onClick={cancelAdjust} className="bg-slate-800 text-white px-6 py-3 rounded-full font-medium active:scale-95 transition-transform">
+                                                Cancel
+                                            </button>
+                                            
+                                            <button onClick={saveAdjust} className="bg-indigo-600 text-white px-8 py-3 rounded-full font-bold shadow-lg shadow-indigo-900/50 flex items-center gap-2 active:scale-95 transition-transform">
+                                                <Check size={18} />
+                                                {pendingPhoto ? 'Add' : 'Save'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
