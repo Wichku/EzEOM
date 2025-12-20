@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ez-EOM by Wichku</title>
+    <title>Ez-EOM</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -209,6 +209,7 @@
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
+                // Increase Resolution for better quality
                 const exportWidth = 3000;
                 const cellDims = getCellDimensions();
                 const gridRatio = (cellDims.w * 3) / (cellDims.h * 3); 
@@ -273,10 +274,27 @@
                         ctx.restore();
                     }
 
-                    const link = document.createElement('a');
-                    link.download = 'ez-eom-grid.png';
-                    link.href = canvas.toDataURL('image/png');
-                    link.click();
+                    // iOS Safe Blob Generation
+                    canvas.toBlob((blob) => {
+                        if (!blob) {
+                            alert("Save failed: Could not generate image.");
+                            return;
+                        }
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.download = 'ez-eom-grid.png';
+                        link.href = url;
+                        
+                        // Force a click
+                        document.body.appendChild(link);
+                        link.click();
+                        
+                        // Cleanup
+                        setTimeout(() => {
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                        }, 100);
+                    }, 'image/png');
 
                 } catch (err) {
                     console.error("Save failed", err);
@@ -730,8 +748,11 @@
                 <div className="h-screen w-screen bg-slate-50 overflow-hidden relative touch-none select-none flex flex-col">
                     
                     {/* Top Toolbar */}
-                    <div className={`absolute top-0 left-0 w-full z-40 bg-white/90 backdrop-blur-md px-4 flex items-center justify-between shadow-sm`} style={{ height: gridStats.toolbarH }}>
-                        <h1 className="font-bold text-lg text-slate-800 tracking-tight">Ez-EOM</h1>
+                    <div className={`absolute top-0 left-0 w-full z-40 bg-sky-100/90 backdrop-blur-md px-4 flex items-center justify-between shadow-sm`} style={{ height: gridStats.toolbarH }}>
+                        <div className="flex items-baseline gap-2">
+                            <h1 className="font-bold text-lg text-slate-800 tracking-tight">Ez-EOM</h1>
+                            <span className="text-xs text-slate-500 font-medium">by Wichku</span>
+                        </div>
                         
                         <div className="flex gap-3">
                             <label className="text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors flex items-center gap-1" title="Batch Upload">
@@ -842,7 +863,7 @@
 
                     {/* Bottom White Band */}
                     <div 
-                        className="fixed bottom-0 left-0 w-full bg-white z-30 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]"
+                        className="fixed bottom-0 left-0 w-full bg-sky-100 z-30 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]"
                         style={{ height: gridStats.footerH }}
                     ></div>
 
