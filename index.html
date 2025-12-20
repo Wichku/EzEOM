@@ -44,7 +44,6 @@
         );
         const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>;
         const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>;
-        const XIcon = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></Icon>;
         const ImagePlus = (p) => <Icon {...p}><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><line x1="16" y1="5" x2="22" y2="5"/><line x1="19" y1="2" x2="19" y2="8"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></Icon>;
         const Smartphone = (p) => <Icon {...p}><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></Icon>;
         const Check = (p) => <Icon {...p}><path d="M20 6 9 17l-5-5"/></Icon>;
@@ -52,6 +51,8 @@
         const Trash2 = (p) => <Icon {...p}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
         const RotateCw = (p) => <Icon {...p}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></Icon>;
         const Eye = (p) => <Icon {...p}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>;
+        // Corrected XIcon for perfect alignment
+        const XIcon = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>;
 
         // --- Main App Logic ---
         const App = () => {
@@ -71,7 +72,6 @@
             const [pendingPhoto, setPendingPhoto] = useState(null); 
             const [tempTransform, setTempTransform] = useState({ x: 0, y: 0, scale: 1, rotation: 0 });
             const [deleteConfirm, setDeleteConfirm] = useState(false); 
-            const [showRotationControl, setShowRotationControl] = useState(false);
             const [showEyeGuide, setShowEyeGuide] = useState(true); 
             
             // Refs
@@ -289,7 +289,6 @@
                     setTempTransform({ x: 0, y: 0, scale: 1, rotation: 0 }); 
                     setAdjustingIndex(index); 
                     setDeleteConfirm(false);
-                    setShowRotationControl(false);
                 } else {
                     const newPhotos = files.map(file => ({
                         id: Math.random().toString(36).substr(2, 9),
@@ -340,7 +339,7 @@
                 }
 
                 const touchCount = activeTouches.current.size;
-                const currentGrid = gridRefState.current; // Use Ref
+                const currentGrid = gridRefState.current; 
 
                 if (touchCount === 2 && currentGrid[index]) {
                     if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -364,6 +363,8 @@
                     }
 
                     const now = Date.now();
+                    
+                    // --- DOUBLE TAP LOGIC (ONLY FOR EDITING FULL CELLS) ---
                     if (now - lastTapTime.current < 300) {
                         if (longPressTimer.current) clearTimeout(longPressTimer.current);
                         
@@ -371,17 +372,16 @@
                         activeTouches.current.clear();
                         activeGridIndex.current = null;
 
+                        // Only if cell has photo
                         if (currentGrid[index]) {
                             setPendingPhoto(null);
                             setAdjustingIndex(index);
                             setTempTransform({ ...currentGrid[index] });
                             setDeleteConfirm(false);
-                            setShowRotationControl(false);
                             setIsRearranging(false);
                             setDraggedIndex(null);
-                        } else {
-                            fileInputRefs.current[index]?.click();
                         }
+                        
                         lastTapTime.current = 0;
                         return;
                     }
@@ -411,7 +411,7 @@
 
                 const touchCount = activeTouches.current.size;
                 const targetIndex = activeGridIndex.current;
-                const currentGrid = gridRefState.current; // Use Ref for fresh data
+                const currentGrid = gridRefState.current; 
 
                 if (touchCount === 2 && !isRearranging && targetIndex !== null && currentGrid[targetIndex]) {
                     e.preventDefault();
@@ -483,21 +483,16 @@
 
                 if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
-                // FIX: Check if transitioning from 2 touches to 1 touch (pinch release)
-                // This prevents the remaining single finger from causing a "pan jump"
                 if (activeTouches.current.size === 1 && activeGridIndex.current !== null) {
                     const touch = activeTouches.current.values().next().value;
-                    // Reset anchor to current single finger position
                     initialTouchCenter.current = { x: touch.clientX, y: touch.clientY };
-                    
-                    // Reset base transform to current grid state so delta calculation starts fresh
                     const currentItem = gridRefState.current[activeGridIndex.current];
                     if (currentItem) {
                         initialTransform.current = { ...currentItem };
                     }
                 }
 
-                const currentGrid = gridRefState.current; // Use Ref
+                const currentGrid = gridRefState.current; 
 
                 if (isRearranging && draggedIndex !== null) {
                     const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
@@ -520,8 +515,15 @@
                 } else {
                     if (activeTouches.current.size === 0 && !isRearranging && !isPanning.current) {
                         const targetIndex = activeGridIndex.current;
-                        if (targetIndex !== null && currentGrid[targetIndex]) {
-                            handleTap(targetIndex);
+                        if (targetIndex !== null) {
+                            if (currentGrid[targetIndex]) {
+                                // Full Cell -> Select for Swap
+                                handleTap(targetIndex);
+                            } else {
+                                // --- EMPTY CELL FIX --- 
+                                // Single Tap on empty cell triggers file upload
+                                fileInputRefs.current[targetIndex]?.click();
+                            }
                         }
                     }
                 }
@@ -774,6 +776,7 @@
                                         className="hidden" 
                                         ref={el => fileInputRefs.current[index] = el}
                                         onChange={(e) => handleFileUpload(e, index)}
+                                        onClick={(e) => e.stopPropagation()} // Safe click bubbling prevention
                                     />
 
                                     {photo ? (
@@ -830,13 +833,26 @@
                             className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center animate-in fade-in duration-200"
                             onClick={() => setDeleteConfirm(false)}
                         >
-                            <div className="absolute top-4 w-full flex justify-between px-6 z-50">
-                                <h2 className="text-white/80 font-medium">
-                                    {pendingPhoto ? 'Preview & Add' : 'Adjust Photo'}
-                                </h2>
+                            {/* Controls: Eye (Left), Cancel/Save (Right) */}
+                            <div className="absolute top-4 w-full px-4 flex justify-between items-start z-50">
+                                <button 
+                                    onClick={() => setShowEyeGuide(!showEyeGuide)}
+                                    className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-all shadow-lg backdrop-blur-sm ${showEyeGuide ? 'bg-indigo-500' : 'bg-slate-700/50'}`}
+                                >
+                                    <Eye size={20} />
+                                </button>
+
+                                <div className="flex gap-3">
+                                    <button onClick={cancelAdjust} className="w-10 h-10 rounded-full flex items-center justify-center bg-red-500 text-white transition-all shadow-lg active:scale-95">
+                                        <XIcon size={20} />
+                                    </button>
+                                    <button onClick={saveAdjust} className="w-10 h-10 rounded-full flex items-center justify-center bg-indigo-600 text-white transition-all shadow-lg active:scale-95">
+                                        <Check size={20} />
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="text-white/50 text-xs mb-2 z-50 pointer-events-none">
+                            <div className="text-white/50 text-xs mb-2 z-50 pointer-events-none mt-12">
                                 1 finger move • 2 fingers zoom/rotate
                             </div>
 
@@ -885,66 +901,16 @@
                                 </div>
                             </div>
 
-                            {/* Controls Container */}
-                            <div 
-                                className="absolute bottom-6 w-full px-6 flex items-center justify-between gap-4 z-50"
-                                onClick={(e) => e.stopPropagation()} 
-                            >
-                                <div className="flex gap-3">
+                            {/* Bottom Controls */}
+                            <div className="absolute bottom-6 right-6 z-50">
+                                {!pendingPhoto && (
                                     <button 
-                                        onClick={() => setShowRotationControl(!showRotationControl)}
-                                        className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all shadow-lg ${showRotationControl ? 'bg-indigo-500' : 'bg-slate-800'}`}
+                                        onClick={handleDelete}
+                                        className={`${deleteConfirm ? 'bg-red-500 w-auto px-4' : 'bg-slate-800 w-12'} h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all duration-200 shadow-lg`}
                                     >
-                                        <RotateCw size={20} />
+                                        {deleteConfirm ? <span className="text-xs font-bold whitespace-nowrap">Confirm</span> : <Trash2 size={20} />}
                                     </button>
-                                    <button 
-                                        onClick={() => setShowEyeGuide(!showEyeGuide)}
-                                        className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white transition-all shadow-lg ${showEyeGuide ? 'bg-indigo-500' : 'bg-slate-800'}`}
-                                    >
-                                        <Eye size={20} />
-                                    </button>
-                                </div>
-
-                                <div className="flex-1 flex items-center justify-end">
-                                    {showRotationControl ? (
-                                        <div className="flex-1 bg-black/40 p-2 rounded-xl backdrop-blur-sm flex items-center gap-3 animate-in fade-in slide-in-from-right-4">
-                                            <span className="text-white/50 text-xs w-8 text-right font-mono">
-                                                {Math.round(tempTransform.rotation)}°
-                                            </span>
-                                            
-                                            <div className="relative flex-1 h-6 flex items-center">
-                                                <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/30 -translate-x-1/2 z-0"></div>
-                                                <input 
-                                                    type="range" 
-                                                    min="-45" max="45" 
-                                                    value={tempTransform.rotation} 
-                                                    onChange={(e) => setTempTransform(prev => ({...prev, rotation: parseFloat(e.target.value)}))}
-                                                    className="w-full accent-indigo-500 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer z-10 relative"
-                                                />
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex gap-4 animate-in fade-in slide-in-from-right-4">
-                                            {!pendingPhoto && (
-                                                <button 
-                                                    onClick={handleDelete}
-                                                    className={`${deleteConfirm ? 'bg-red-500 w-auto px-4' : 'bg-slate-800 w-12'} h-12 rounded-full flex items-center justify-center text-white transition-all duration-200 shadow-lg`}
-                                                >
-                                                    {deleteConfirm ? <span className="text-xs font-bold whitespace-nowrap">Confirm</span> : <Trash2 size={20} />}
-                                                </button>
-                                            )}
-                                            
-                                            <button onClick={cancelAdjust} className="bg-slate-800 text-white px-6 py-3 rounded-full font-medium active:scale-95 transition-transform">
-                                                Cancel
-                                            </button>
-                                            
-                                            <button onClick={saveAdjust} className="bg-indigo-600 text-white px-8 py-3 rounded-full font-bold shadow-lg shadow-indigo-900/50 flex items-center gap-2 active:scale-95 transition-transform">
-                                                <Check size={18} />
-                                                {pendingPhoto ? 'Add' : 'Save'}
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
+                                )}
                             </div>
                         </div>
                     )}
