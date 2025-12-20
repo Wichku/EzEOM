@@ -483,6 +483,20 @@
 
                 if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
+                // FIX: Check if transitioning from 2 touches to 1 touch (pinch release)
+                // This prevents the remaining single finger from causing a "pan jump"
+                if (activeTouches.current.size === 1 && activeGridIndex.current !== null) {
+                    const touch = activeTouches.current.values().next().value;
+                    // Reset anchor to current single finger position
+                    initialTouchCenter.current = { x: touch.clientX, y: touch.clientY };
+                    
+                    // Reset base transform to current grid state so delta calculation starts fresh
+                    const currentItem = gridRefState.current[activeGridIndex.current];
+                    if (currentItem) {
+                        initialTransform.current = { ...currentItem };
+                    }
+                }
+
                 const currentGrid = gridRefState.current; // Use Ref
 
                 if (isRearranging && draggedIndex !== null) {
