@@ -142,22 +142,30 @@
                 const w = windowSize.width;
                 const h = windowSize.height;
 
+                // Adjust these values to fine-tune spacing
+                const toolbarHeight = 40; // Reduced from 56
+                const footerHeight = 40;  // New footer space
+
                 if (isPortrait) {
                     const forcedHeight = w * 0.65; 
                     return {
                         w: w,
                         h: forcedHeight,
                         paddingTop: 0, 
-                        marginTop: 56, 
-                        isFullHeight: false
+                        marginTop: toolbarHeight, 
+                        isFullHeight: false,
+                        toolbarH: toolbarHeight,
+                        footerH: footerHeight
                     };
                 } else {
                     return {
                         w: w,
-                        h: h,
-                        paddingTop: 56, 
+                        h: h - footerHeight, // Leave space for footer
+                        paddingTop: toolbarHeight, 
                         marginTop: 0,
-                        isFullHeight: true
+                        isFullHeight: true,
+                        toolbarH: toolbarHeight,
+                        footerH: footerHeight
                     };
                 }
             };
@@ -165,7 +173,8 @@
             const getCellDimensions = () => {
                 const stats = getGridAreaStats();
                 const cellW = (stats.w - 12) / 3;
-                const deduction = stats.paddingTop + 12;
+                // Height deduction: Top Toolbar + Bottom Footer + Border(8px) + Gaps(4px)
+                const deduction = stats.paddingTop + 12; // Internal padding deduction for calc
                 const cellH = (stats.h - deduction) / 3;
                 return { w: cellW, h: cellH };
             };
@@ -721,12 +730,12 @@
                 <div className="h-screen w-screen bg-slate-50 overflow-hidden relative touch-none select-none flex flex-col">
                     
                     {/* Top Toolbar */}
-                    <div className="absolute top-0 left-0 w-full z-40 bg-white/90 backdrop-blur-md px-4 h-14 flex items-center justify-between shadow-sm">
+                    <div className={`absolute top-0 left-0 w-full z-40 bg-white/90 backdrop-blur-md px-4 flex items-center justify-between shadow-sm`} style={{ height: gridStats.toolbarH }}>
                         <h1 className="font-bold text-lg text-slate-800 tracking-tight">Ez-EOM</h1>
                         
                         <div className="flex gap-3">
                             <label className="text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors flex items-center gap-1" title="Batch Upload">
-                                <Upload size={20} />
+                                <Upload size={18} />
                                 <span className="text-xs font-medium hidden sm:inline">Upload</span>
                                 <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
                             </label>
@@ -736,7 +745,7 @@
                                 onClick={handleSave}
                                 title="Save Image"
                             >
-                                <Download size={20} />
+                                <Download size={18} />
                                 <span className="text-xs font-medium hidden sm:inline">Save</span>
                             </button>
                         </div>
@@ -744,16 +753,20 @@
 
                     {/* Main Grid Container */}
                     <div 
-                        className="w-full h-full bg-slate-100 flex items-start justify-center" 
+                        className="w-full flex items-start justify-center bg-slate-100" 
                         ref={containerRef} 
-                        style={{ touchAction: 'none' }}
+                        style={{ 
+                            touchAction: 'none',
+                            height: `calc(100% - ${gridStats.footerH}px)` // Reduce main container height to allow for footer
+                        }}
                     >
                         <div 
-                            className={`grid grid-cols-3 grid-rows-3 gap-0.5 border-4 border-white ${gridStats.isFullHeight ? 'pt-14' : ''}`}
+                            className={`grid grid-cols-3 grid-rows-3 gap-0.5 border-4 border-white ${gridStats.isFullHeight ? '' : ''}`}
                             style={{ 
                                 width: gridStats.w, 
                                 height: gridStats.h,
                                 marginTop: gridStats.marginTop,
+                                paddingTop: gridStats.paddingTop,
                                 alignSelf: isPortrait ? 'center' : 'auto' 
                             }}
                             ref={gridRef}
@@ -776,7 +789,7 @@
                                         className="hidden" 
                                         ref={el => fileInputRefs.current[index] = el}
                                         onChange={(e) => handleFileUpload(e, index)}
-                                        onClick={(e) => e.stopPropagation()} // Safe click bubbling prevention
+                                        onClick={(e) => e.stopPropagation()} 
                                     />
 
                                     {photo ? (
@@ -826,6 +839,12 @@
                             </div>
                         )}
                     </div>
+
+                    {/* Bottom White Band */}
+                    <div 
+                        className="fixed bottom-0 left-0 w-full bg-white z-30 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]"
+                        style={{ height: gridStats.footerH }}
+                    ></div>
 
                     {/* --- Adjust Modal Overlay --- */}
                     {adjustingIndex !== null && activePhotoUrl && (
