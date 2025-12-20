@@ -22,6 +22,7 @@
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
+            touch-action: none; /* Critical for handling gestures */
         }
         /* Hide scrollbar */
         ::-webkit-scrollbar {
@@ -77,6 +78,10 @@
             const containerRef = useRef(null);
             const gridRef = useRef(null);
             const fileInputRefs = useRef({}); 
+            
+            // Keep a Ref to Grid State to avoid stale closures in event listeners
+            const gridRefState = useRef(grid);
+            gridRefState.current = grid; // Always keep fresh
             
             // Touch Refs
             const activeTouches = useRef(new Map());
@@ -219,7 +224,7 @@
 
                 try {
                     for (let i = 0; i < 9; i++) {
-                        const photo = grid[i];
+                        const photo = gridRefState.current[i]; // Use fresh grid state
                         const row = Math.floor(i / 3);
                         const col = i % 3;
                         
@@ -335,8 +340,9 @@
                 }
 
                 const touchCount = activeTouches.current.size;
+                const currentGrid = gridRefState.current; // Use Ref
 
-                if (touchCount === 2 && grid[index]) {
+                if (touchCount === 2 && currentGrid[index]) {
                     if (longPressTimer.current) clearTimeout(longPressTimer.current);
                     setIsRearranging(false);
                     setDraggedIndex(null);
@@ -344,7 +350,7 @@
                     const touches = Array.from(activeTouches.current.values());
                     initialTouchDistance.current = getDistance(touches[0], touches[1]);
                     initialTouchCenter.current = getCenter(touches[0], touches[1]);
-                    initialTransform.current = { ...grid[index] };
+                    initialTransform.current = { ...currentGrid[index] };
                     return;
                 }
 
@@ -353,8 +359,8 @@
                     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
                     
                     initialTouchCenter.current = { x: clientX, y: clientY };
-                    if (grid[index]) {
-                        initialTransform.current = { ...grid[index] };
+                    if (currentGrid[index]) {
+                        initialTransform.current = { ...currentGrid[index] };
                     }
 
                     const now = Date.now();
@@ -365,10 +371,10 @@
                         activeTouches.current.clear();
                         activeGridIndex.current = null;
 
-                        if (grid[index]) {
+                        if (currentGrid[index]) {
                             setPendingPhoto(null);
                             setAdjustingIndex(index);
-                            setTempTransform({ ...grid[index] });
+                            setTempTransform({ ...currentGrid[index] });
                             setDeleteConfirm(false);
                             setShowRotationControl(false);
                             setIsRearranging(false);
@@ -381,7 +387,7 @@
                     }
                     lastTapTime.current = now;
 
-                    if (grid[index]) {
+                    if (currentGrid[index]) {
                         longPressTimer.current = setTimeout(() => {
                             if (!isPanning.current) { 
                                 setIsRearranging(true);
@@ -405,8 +411,9 @@
 
                 const touchCount = activeTouches.current.size;
                 const targetIndex = activeGridIndex.current;
+                const currentGrid = gridRefState.current; // Use Ref for fresh data
 
-                if (touchCount === 2 && !isRearranging && targetIndex !== null && grid[targetIndex]) {
+                if (touchCount === 2 && !isRearranging && targetIndex !== null && currentGrid[targetIndex]) {
                     e.preventDefault();
                     const touches = Array.from(activeTouches.current.values());
                     const newDist = getDistance(touches[0], touches[1]);
@@ -439,7 +446,7 @@
                         return;
                     }
 
-                    if (!isRearranging && grid[targetIndex]) {
+                    if (!isRearranging && currentGrid[targetIndex]) {
                         const dx = clientX - initialTouchCenter.current.x;
                         const dy = clientY - initialTouchCenter.current.y;
                         const moveDist = Math.hypot(dx, dy);
@@ -476,6 +483,8 @@
 
                 if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
+                const currentGrid = gridRefState.current; // Use Ref
+
                 if (isRearranging && draggedIndex !== null) {
                     const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
                     const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
@@ -497,7 +506,7 @@
                 } else {
                     if (activeTouches.current.size === 0 && !isRearranging && !isPanning.current) {
                         const targetIndex = activeGridIndex.current;
-                        if (targetIndex !== null && grid[targetIndex]) {
+                        if (targetIndex !== null && currentGrid[targetIndex]) {
                             handleTap(targetIndex);
                         }
                     }
@@ -653,6 +662,24 @@
                     setDeleteConfirm(true);
                 }
             };
+
+            // --- Effects ---
+            useEffect(() => {
+                if (adjustingIndex === null) {
+                    window.addEventListener('mousemove', handlePointerMove);
+                    window.addEventListener('mouseup', handlePointerUp);
+                    window.addEventListener('touchmove', handlePointerMove, { passive: false });
+                    window.addEventListener('touchend', handlePointerUp);
+                    window.addEventListener('touchcancel', handlePointerUp);
+                }
+                return () => {
+                    window.removeEventListener('mousemove', handlePointerMove);
+                    window.removeEventListener('mouseup', handlePointerUp);
+                    window.removeEventListener('touchmove', handlePointerMove);
+                    window.removeEventListener('touchend', handlePointerUp);
+                    window.removeEventListener('touchcancel', handlePointerUp);
+                };
+            }, [draggedIndex, isRearranging, adjustingIndex]);
 
             // --- Render ---
             if (showPortraitWarning && isPortrait) {
