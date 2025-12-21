@@ -770,7 +770,7 @@
                         <div className="flex gap-3">
                             <label className="bg-gradient-to-b from-white to-slate-100 text-indigo-600 border border-slate-200 border-b-4 hover:border-b-4 active:border-b-0 active:translate-y-1 active:shadow-inner px-4 py-1.5 rounded-xl cursor-pointer transition-all flex items-center gap-2 shadow-md" title="Batch Upload">
                                 <Upload size={18} className="drop-shadow-sm" />
-                                <span className="text-xs font-bold tracking-wide sm:block hidden">Upload</span>
+                                <span className="text-xs font-bold tracking-wide">Upload</span>
                                 <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
                             </label>
                             
@@ -780,7 +780,7 @@
                                 title="Save Image"
                             >
                                 <Download size={18} className="drop-shadow-md" />
-                                <span className="text-xs font-bold tracking-wide sm:block hidden">Save</span>
+                                <span className="text-xs font-bold tracking-wide">Save</span>
                             </button>
                         </div>
                     </div>
@@ -849,9 +849,8 @@
                                     ) : (
                                         <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-2 animate-pop group-hover:scale-105 transition-transform duration-200">
                                             <div className="bg-white p-2.5 rounded-full shadow-sm border border-slate-100 group-hover:border-indigo-100 group-hover:text-indigo-400 transition-colors">
-                                                <ImagePlus size={20} strokeWidth={1.5} />
+                                                <ImagePlus size={24} strokeWidth={1.5} />
                                             </div>
-                                            <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-indigo-400">Tap to Add</span>
                                         </div>
                                     )}
                                 </div>
